@@ -32,27 +32,27 @@ no_magisk_check=1
 # import functions/variables and setup patching
 . tools/ak3-core.sh
 
-### [BARU] Pengaturan & deteksi lingkungan
+### Pengaturan & deteksi lingkungan
 # Pilihan bawaan bila tidak ada input (aplikasi Android / timeout di recovery)
 DEFAULT_KERNEL_TYPE="gki"    # gki | clo
 DEFAULT_KSU_TYPE="ksu"        # ksu | noksu
 INPUT_WAIT=30                # total detik menunggu tombol volume
 
-# [BARU] Berjalan dari aplikasi Android (bukan recovery)?
+# Berjalan dari aplikasi Android (bukan recovery)?
 is_android_app() {
   [ "$BOOTMODE" = "true" ] && return 0
   [ "$(getprop init.svc.zygote 2>/dev/null)" = "running" ] && return 0
   return 1
 }
 
-# [BARU] Tombol aktif di recovery DAN aplikasi Android (selama tool tersedia)
+# Tombol aktif di recovery DAN aplikasi Android (selama tool tersedia)
 can_use_keys() {
   command -v getevent >/dev/null 2>&1 || return 1
   command -v timeout >/dev/null 2>&1 || return 1
   return 0
 }
 
-# [BARU] Baca nilai dari cryo.conf (format: kernel=gki / ksu=noksu)
+# Baca nilai dari cryo.conf (format: kernel=gki / ksu=noksu)
 read_conf() {
   for f in "$AKHOME/cryo.conf" /data/local/tmp/cryo.conf /sdcard/cryo.conf /data/media/0/cryo.conf; do
     [ -f "$f" ] || continue
@@ -62,7 +62,7 @@ read_conf() {
   return 1
 }
 
-# [BARU] Pilihan otomatis tanpa interaksi.
+# Pilihan otomatis tanpa interaksi.
 # Prioritas: variabel env (CRYO_KERNEL / CRYO_KSU) > nama zip > cryo.conf
 pre_kernel=""
 pre_ksu=""
@@ -150,7 +150,7 @@ choose_ksu() {
   return $rc
 }
 
-# [BARU] Info lingkungan
+# Info lingkungan
 if is_android_app; then ui_print "Environment: Android app"; else ui_print "Environment: Recovery"; fi
 
 # Handle selection

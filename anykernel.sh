@@ -178,7 +178,7 @@ select_option() {
   box_mid
   box_row "[Vol +]  ${s_up_txt}${mark_up}"
   box_row "[Vol -]  ${s_dn_txt}${mark_dn}"
-  box_row "[Power]  Batal / keluar"
+  box_row "[Power]  Batal / Exit"
   box_row ""
   box_row "Tanpa input ${INPUT_WAIT} detik = pilih default"
   box_bot
@@ -189,21 +189,21 @@ select_option() {
   case $rc in
     1) sel_result="$s_up_val"; sel_how="tombol" ;;
     2) sel_result="$s_dn_val"; sel_how="tombol" ;;
-    4) abort "Dibatalkan oleh user (tombol Power)." ;;
+    4) abort "Dibatalkan oleh user | canceled by user  (Power button)." ;;
     *) sel_result="$s_def";    sel_how="default (timeout)" ;;
   esac
-  ui_print "  > Dipilih: $(label_of "$sel_result")"
+  ui_print "  > Dipilih|Selected : $(label_of "$sel_result")"
 }
 
 # Pemilihan jenis kernel
 choose_kernel_type() {
-  select_option "Pilih Varian Cryo" "GKI" "gki" "CLO" "clo" \
+  select_option "Pilih Varian Cryo | Choose Cryo Variant" "GKI" "gki" "CLO" "clo" \
     "$DEFAULT_KERNEL_TYPE" "$pre_kernel"
 }
 
 # Pemilihan dukungan KSU
 choose_ksu() {
-  select_option "Pilih Dukungan KernelSU" "With KSU" "ksu" "Vanilla" "noksu" \
+  select_option "Pilih Dukungan KernelSU | KSU Support?" "With KSU" "ksu" "Vanilla" "noksu" \
     "$DEFAULT_KSU_TYPE" "$pre_ksu"
 }
 
@@ -211,7 +211,7 @@ choose_ksu() {
 # [5] PROSES PEMILIHAN
 ########################################################################
 ui_print " "
-if is_android_app; then env_name="Aplikasi Android"; else env_name="Recovery"; fi
+if is_android_app; then env_name="Android"; else env_name="Recovery"; fi
 ui_print "Environment : $env_name"
 
 clear_input   # buang sisa input sebelum menu pertama
@@ -229,9 +229,9 @@ selected_kernel="Image.${kernel_type}.${ksu_type}"
 
 ui_print " "
 box_top
-box_row "Ringkasan Pilihan"
+box_row "Ringkasan Pilihan | Summary of options"
 box_mid
-box_row "Varian    : $(label_of "$kernel_type")  [$kernel_how]"
+box_row "Variant   : $(label_of "$kernel_type")  [$kernel_how]"
 box_row "KernelSU  : $(label_of "$ksu_type")  [$ksu_how]"
 box_row "Image     : $selected_kernel"
 box_bot

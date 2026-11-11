@@ -99,13 +99,21 @@ can_use_keys() {
 }
 
 # Baca nilai dari cryo.conf (format: kernel=gki / ksu=noksu)
-# Mendukung spasi di sekitar '=' dan komentar '#'
+# Mendukung spasi di sekitar '=', komentar '#', dan CRLF. Murni shell (tanpa
+# subprocess per baris); hanya satu `tr` bila nilai ditemukan.
+CR=$(printf '\r')
 read_conf() {
-  for f in "$AKHOME/cryo.conf" /data/local/tmp/cryo.conf /sdcard/cryo.conf /data/media/0/cryo.conf; do
-    [ -f "$f" ] || continue
-    v=$(sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$f" 2>/dev/null \
-        | head -n 1 | sed 's/#.*//' | tr -d ' \t\r' | tr 'A-Z' 'a-z')
-    if [ -n "$v" ]; then printf '%s\n' "$v"; return 0; fi
+  for rc_f in "$AKHOME/cryo.conf" /data/local/tmp/cryo.conf /sdcard/cryo.conf /data/media/0/cryo.conf; do
+    [ -f "$rc_f" ] || continue
+    while IFS= read -r rc_l || [ -n "$rc_l" ]; do
+      rc_l="${rc_l%%#*}"; rc_l="${rc_l%"$CR"}"
+      IFS='= 	' read -r rc_k rc_v _ <<EOF_CONF
+$rc_l
+EOF_CONF
+      if [ "$rc_k" = "$1" ] && [ -n "$rc_v" ]; then
+        lower "$rc_v"; echo; return 0
+      fi
+    done < "$rc_f"
   done
   return 1
 }
@@ -142,7 +150,7 @@ case "$v" in ksu|noksu) pre_ksu="$v" ;; esac
 AVAIL=""
 for k in gki clo; do
   for s in ksu noksu; do
-    [ -f "$AKHOME/Image.$k.$s" ] && AVAIL="$AVAIL $k.$s"
+    [ -s "$AKHOME/Image.$k.$s" ] && AVAIL="$AVAIL $k.$s"
   done
 done
 AVAIL="${AVAIL# }"

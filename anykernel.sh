@@ -39,8 +39,13 @@ no_magisk_check=1
 ########################################################################
 # [1] PENGATURAN
 ########################################################################
-DEFAULT_KERNEL_TYPE="gki"    # gki | clo
+# Varian bawaan bila ada beberapa pilihan. Jika tidak ada di paket,
+# otomatis memakai pilihan pertama yang tersedia.
+DEFAULT_KERNEL_TYPE="gki"    # gki | clo | gkica | <tipe lain: Image.<tipe>.<ksu|noksu>>
 DEFAULT_KSU_TYPE="ksu"       # ksu | noksu
+
+# Urutan tampil tipe kernel yang dikenal (tipe lain ikut otomatis di belakangnya)
+KNOWN_KERNELS="gki clo gkica"
 
 INPUT_WAIT="${CRYO_WAIT:-30}"
 DEBOUNCE="${CRYO_DEBOUNCE:-0.4}"
@@ -62,15 +67,34 @@ fi
 ########################################################################
 BOX_LINE="-----------------------------------------------------"
 BOX_BORDER="+${BOX_LINE}+"
+BOX_WIDTH=51
 
 box_line() { ui_print "$BOX_BORDER"; }
 box_row()  { ui_print "$(printf '| %-51.51s |' "$1")"; }
 
+# Baris panjang dipotong per kata supaya tidak terpotong di kotak.
+# $1 = awalan (mis. "Tersedia  : "), $2 = teks; baris lanjutan diberi indentasi.
+box_wrap() {
+  bw_pre="$1"; bw_len=${#bw_pre}
+  bw_ind=$(printf '%s' "$bw_pre" | sed 's/./ /g')
+  bw_cur="$bw_pre"
+  for bw_w in $2; do
+    if [ "${#bw_cur}" -le "$bw_len" ]; then
+      bw_cur="${bw_cur}${bw_w}"
+    elif [ $(( ${#bw_cur} + 1 + ${#bw_w} )) -gt "$BOX_WIDTH" ]; then
+      box_row "$bw_cur"; bw_cur="${bw_ind}${bw_w}"
+    else
+      bw_cur="${bw_cur} ${bw_w}"
+    fi
+  done
+  box_row "$bw_cur"
+}
+
 label_of() {
   case "$1" in
-    gki) echo "GKI" ;; clo) echo "CLO" ;;
+    gki) echo "GKI" ;; clo) echo "CLO" ;; gkica) echo "GKICA" ;;
     ksu) echo "With KSU" ;; noksu) echo "Vanilla" ;;
-    *) echo "$1" ;;
+    *) printf '%s\n' "$1" | tr '[:lower:]' '[:upper:]' ;;
   esac
 }
 
@@ -105,10 +129,6 @@ detect_env() {
   echo "Unknown"
 }
 
-is_android_app() {
-  [ "$(detect_env)" = "Android" ]
-}
-
 can_use_keys() {
   command -v getevent >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1
 }
@@ -129,36 +149,25 @@ EOF_CONF
   return 1
 }
 
-# Resolusi preset: env > nama zip > cryo.conf
-resolve_preset() {
-  rp_env="$1" rp_dim="$2"
-  v=$(lower "$rp_env")
-  if [ -z "$v" ]; then
-    case "$rp_dim" in
-      kernel) case "$zipname" in *[-_.]clo|*[-_.]clo[-_.]*) v=clo ;; *[-_.]gki|*[-_.]gki[-_.]*) v=gki ;; esac ;;
-      ksu)    case "$zipname" in *[-_.]noksu|*[-_.]noksu[-_.]*|*[-_.]vanilla|*[-_.]vanilla[-_.]*) v=noksu ;; *[-_.]ksu|*[-_.]ksu[-_.]*) v=ksu ;; esac ;;
-    esac
-  fi
-  [ -z "$v" ] && v=$(read_conf "$rp_dim")
-  echo "$v"
-}
-
-zipname=$(lower "${ZIPFILE##*/}")
-pre_kernel=$(resolve_preset "${CRYO_KERNEL:-}" kernel)
-pre_ksu=$(resolve_preset "${CRYO_KSU:-}" ksu)
-# Sanitasi
-case "$pre_kernel" in gki|clo) ;; *) pre_kernel="" ;; esac
-case "$pre_ksu" in ksu|noksu) ;; *) pre_ksu="" ;; esac
-
-# Enumerasi image yang tersedia
+# Enumerasi image yang tersedia: "<tipe>.<ksu|noksu>" dipisah spasi.
+# Tipe dikenal tampil sesuai $KNOWN_KERNELS, tipe lain (Image.<tipe>.<ksu|noksu>) ikut otomatis.
 AVAIL=""
-for k in gki clo; do
-  for s in ksu noksu; do
-    [ -s "$AKHOME/Image.$k.$s" ] && AVAIL="$AVAIL $k.$s"
+add_image() {
+  for ai_s in ksu noksu; do
+    if [ -s "$AKHOME/Image.$1.$ai_s" ]; then AVAIL="$AVAIL $1.$ai_s"; fi
   done
+}
+for k in $KNOWN_KERNELS; do add_image "$k"; done
+for ai_f in "$AKHOME"/Image.*.ksu "$AKHOME"/Image.*.noksu; do
+  [ -e "$ai_f" ] || continue
+  ai_n="${ai_f##*/}"; ai_n="${ai_n#Image.}"; ai_k="${ai_n%.*}"
+  case "$ai_k" in ''|*[!a-z0-9_-]*) continue ;; esac
+  case " $KNOWN_KERNELS " in *" $ai_k "*) continue ;; esac
+  case " $AVAIL " in *" $ai_k."*) continue ;; esac
+  add_image "$ai_k"
 done
 AVAIL="${AVAIL# }"
-[ -n "$AVAIL" ] || abort "Tidak ada file Image.<gki|clo>.<ksu|noksu> di paket ini | No kernel image found in this package."
+[ -n "$AVAIL" ] || abort "Tidak ada file Image.<tipe>.<ksu|noksu> di paket ini | No kernel image found in this package."
 
 # Daftar nilai unik untuk satu dimensi
 avail_values() {
@@ -175,6 +184,30 @@ avail_values() {
   done
   echo "${av_out# }"
 }
+
+# Resolusi preset: env > nama zip > cryo.conf
+resolve_preset() {
+  rp_env="$1" rp_dim="$2"
+  v=$(lower "$rp_env")
+  if [ -z "$v" ]; then
+    case "$rp_dim" in
+      kernel)
+        for rp_t in $(avail_values kernel); do
+          case "$zipname" in *[-_.]"$rp_t"|*[-_.]"$rp_t"[-_.]*) v="$rp_t"; break ;; esac
+        done ;;
+      ksu)    case "$zipname" in *[-_.]noksu|*[-_.]noksu[-_.]*|*[-_.]vanilla|*[-_.]vanilla[-_.]*) v=noksu ;; *[-_.]ksu|*[-_.]ksu[-_.]*) v=ksu ;; esac ;;
+    esac
+  fi
+  [ -z "$v" ] && v=$(read_conf "$rp_dim")
+  echo "$v"
+}
+
+zipname=$(lower "${ZIPFILE##*/}")
+pre_kernel=$(resolve_preset "${CRYO_KERNEL:-}" kernel)
+pre_ksu=$(resolve_preset "${CRYO_KSU:-}" ksu)
+# Sanitasi
+case "$pre_kernel" in ''|*[!a-z0-9_-]*) pre_kernel="" ;; esac
+case "$pre_ksu" in ksu|noksu) ;; *) pre_ksu="" ;; esac
 
 ########################################################################
 # [4] INPUT TOMBOL
@@ -200,10 +233,18 @@ read_key() {
   return 3
 }
 
-# Menu generik. Hasil di $sel_result / $sel_how.
+# Menu generik untuk N opsi. Hasil di $sel_result / $sel_how.
+#   2 opsi : [Vol +] = opsi pertama, [Vol -] = opsi kedua
+#   >2 opsi: [Vol +] = berikutnya, [Vol -] = pilih
 select_option() {
-  s_title="$1"; s_up_txt="$2"; s_up_val="$3"
-  s_dn_txt="$4"; s_dn_val="$5"; s_def="$6"; s_pre="$7"
+  s_title="$1"; s_def="$2"; s_pre="$3"; s_vals="$4"
+  s_n=0; s_first=""
+  for s_v in $s_vals; do
+    s_n=$((s_n + 1))
+    [ -n "$s_first" ] || s_first="$s_v"
+  done
+  # Default yang tidak ada di paket diganti opsi pertama
+  case " $s_vals " in *" $s_def "*) ;; *) s_def="$s_first" ;; esac
 
   if [ -n "$s_pre" ]; then
     sel_result="$s_pre"; sel_how="preset"; return 0
@@ -218,29 +259,70 @@ select_option() {
   # Clear input sekali saja sebelum menu pertama
   [ -z "${input_cleared:-}" ] && { clear_input; input_cleared=1; }
 
-  mark_up="" mark_dn=""
-  [ "$s_def" = "$s_up_val" ] && mark_up="  (default)"
-  [ "$s_def" = "$s_dn_val" ] && mark_dn="  (default)"
+  if [ "$s_n" -eq 2 ]; then
+    set -- $s_vals
+    s_up_val="$1"; s_dn_val="$2"
+    mark_up="" mark_dn=""
+    [ "$s_def" = "$s_up_val" ] && mark_up="  (default)"
+    [ "$s_def" = "$s_dn_val" ] && mark_dn="  (default)"
 
-  ui_print " "
-  box_line
-  box_row "$s_title"
-  box_line
-  box_row "[Vol +]  ${s_up_txt}${mark_up}"
-  box_row "[Vol -]  ${s_dn_txt}${mark_dn}"
-  box_row "[Power]  Batal / Exit"
-  box_row ""
-  box_row "Tanpa input ${INPUT_WAIT} detik = pilih default"
-  box_line
-  read_key; rc=$?
-  clear_input
+    ui_print " "
+    box_line
+    box_row "$s_title"
+    box_line
+    box_row "[Vol +]  $(label_of "$s_up_val")${mark_up}"
+    box_row "[Vol -]  $(label_of "$s_dn_val")${mark_dn}"
+    box_row "[Power]  Batal / Exit"
+    box_row ""
+    box_row "Tanpa input ${INPUT_WAIT} detik = pilih default"
+    box_line
+    read_key; rc=$?
+    clear_input
 
-  case $rc in
-    1) sel_result="$s_up_val"; sel_how="tombol" ;;
-    2) sel_result="$s_dn_val"; sel_how="tombol" ;;
-    4) abort "Dibatalkan oleh user | canceled by user  (Power button)." ;;
-    *) sel_result="$s_def";    sel_how="default (timeout)" ;;
-  esac
+    case $rc in
+      1) sel_result="$s_up_val"; sel_how="tombol" ;;
+      2) sel_result="$s_dn_val"; sel_how="tombol" ;;
+      4) abort "Dibatalkan oleh user | canceled by user  (Power button)." ;;
+      *) sel_result="$s_def";    sel_how="default (timeout)" ;;
+    esac
+  else
+    s_cur="$s_def"; s_how="default (timeout)"
+    while :; do
+      ui_print " "
+      box_line
+      box_row "$s_title"
+      box_line
+      for s_v in $s_vals; do
+        s_mark="   "; [ "$s_v" = "$s_cur" ] && s_mark=">> "
+        s_dtag=""; [ "$s_v" = "$s_def" ] && s_dtag="  (default)"
+        box_row "${s_mark}$(label_of "$s_v")${s_dtag}"
+      done
+      box_row ""
+      box_row "[Vol +]  Berikutnya | Next"
+      box_row "[Vol -]  Pilih | Select"
+      box_row "[Power]  Batal / Exit"
+      box_row ""
+      box_row "Tanpa input ${INPUT_WAIT} detik = pilih yang bertanda >>"
+      box_line
+      read_key; rc=$?
+      clear_input
+
+      case $rc in
+        1)
+          s_nxt=""; s_hit=0
+          for s_v in $s_vals; do
+            if [ "$s_hit" -eq 1 ]; then s_nxt="$s_v"; break; fi
+            [ "$s_v" = "$s_cur" ] && s_hit=1
+          done
+          s_cur="${s_nxt:-$s_first}"
+          ;;
+        2) s_how="tombol"; break ;;
+        4) abort "Dibatalkan oleh user | canceled by user  (Power button)." ;;
+        *) break ;;
+      esac
+    done
+    sel_result="$s_cur"; sel_how="$s_how"
+  fi
   ui_print "  > Dipilih|Selected : $(label_of "$sel_result")"
 }
 
@@ -282,11 +364,7 @@ choose() {
   fi
 
   case " $ch_vals " in *" $ch_pre "*) ;; *) ch_pre="" ;; esac
-  case "$ch_dim" in
-    kernel) select_option "$ch_title" "GKI" "gki" "CLO" "clo" "$ch_def" "$ch_pre" ;;
-    ksu)    select_option "$ch_title" "With KSU" "ksu" "Vanilla" "noksu" "$ch_def" "$ch_pre" ;;
-    *)      abort "Dimensi tidak dikenal: '$ch_dim' | Unknown dimension." ;;
-  esac
+  select_option "$ch_title" "$ch_def" "$ch_pre" "$ch_vals"
 }
 
 ########################################################################
@@ -303,10 +381,10 @@ kernel_type="$sel_result"; kernel_how="$sel_how"
 choose ksu "$pre_ksu" "$DEFAULT_KSU_TYPE" ksu "$kernel_type"
 ksu_type="$sel_result"; ksu_how="$sel_how"
 
-# Tentukan dan validasi image terpilih
+# Tentukan dan validasi image terpilih (harus salah satu image yang ada di paket)
 selected_kernel="Image.${kernel_type}.${ksu_type}"
-case "$selected_kernel" in
-  Image.gki.ksu|Image.gki.noksu|Image.clo.ksu|Image.clo.noksu) ;;
+case " $AVAIL " in
+  *" ${kernel_type}.${ksu_type} "*) ;;
   *) abort "Nama image tidak valid: $selected_kernel" ;;
 esac
 [ -s "$AKHOME/$selected_kernel" ] || abort "Kernel file kosong/tidak ditemukan: $selected_kernel"
@@ -318,7 +396,7 @@ box_line
 box_row "Variant   : $(label_of "$kernel_type")  [$kernel_how]"
 box_row "KernelSU  : $(label_of "$ksu_type")  [$ksu_how]"
 box_row "Image     : $selected_kernel"
-box_row "Tersedia  : $AVAIL"
+box_wrap "Tersedia  : " "$AVAIL"
 box_line
 ui_print " "
 
